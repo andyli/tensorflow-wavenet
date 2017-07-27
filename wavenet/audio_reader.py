@@ -8,7 +8,9 @@ import librosa
 import numpy as np
 import tensorflow as tf
 
-FILE_PATTERN = r'p([0-9]+)_([0-9]+)\.wav'
+# FILE_FORMAT = 'wav'
+FILE_FORMAT = 'mp3'
+FILE_PATTERN = r'p([0-9]+)_([0-9]+)\.'+FILE_FORMAT
 
 
 def get_category_cardinality(files):
@@ -32,7 +34,7 @@ def randomize_files(files):
         yield files[file_index]
 
 
-def find_files(directory, pattern='*.wav'):
+def find_files(directory, pattern='*.'+FILE_FORMAT):
     '''Recursively finds all files matching the pattern.'''
     files = []
     for root, dirnames, filenames in os.walk(directory):
@@ -47,7 +49,7 @@ def load_generic_audio(directory, sample_rate):
     id_reg_exp = re.compile(FILE_PATTERN)
     print("files length: {}".format(len(files)))
     randomized_files = randomize_files(files)
-    for filename in randomized_files:
+    for i, filename in enumerate(randomized_files):
         ids = id_reg_exp.findall(filename)
         if not ids:
             # The file name does not match the pattern containing ids, so
@@ -56,9 +58,13 @@ def load_generic_audio(directory, sample_rate):
         else:
             # The file name matches the pattern for containing ids.
             category_id = int(ids[0][0])
-        audio, _ = librosa.load(filename, sr=sample_rate, mono=True)
-        audio = audio.reshape(-1, 1)
-        yield audio, filename, category_id
+        print("load {}/{}: {}".format(i, len(files), filename))
+        try:
+            audio, _ = librosa.load(filename, sr=sample_rate, mono=True)
+            audio = audio.reshape(-1, 1)
+            yield audio, filename, category_id
+        except BaseException as error:
+            print("error: {}".format(error))
 
 
 def trim_silence(audio, threshold, frame_length=2048):
@@ -72,6 +78,9 @@ def trim_silence(audio, threshold, frame_length=2048):
     # Note: indices can be an empty array, if the whole audio was silence.
     return audio[indices[0]:indices[-1]] if indices.size else audio[0:0]
 
+
+def trim_seconds(audio, length):
+    return audio[length[0]:-length[1]]
 
 def not_all_have_id(files):
     ''' Return true iff any of the filenames does not conform to the pattern
@@ -96,13 +105,15 @@ class AudioReader(object):
                  receptive_field,
                  sample_size=None,
                  silence_threshold=None,
-                 queue_size=32):
+                 queue_size=32,
+                 trim=(0,0)):
         self.audio_dir = audio_dir
         self.sample_rate = sample_rate
         self.coord = coord
         self.sample_size = sample_size
         self.receptive_field = receptive_field
         self.silence_threshold = silence_threshold
+        self.trim = trim
         self.gc_enabled = gc_enabled
         self.threads = []
         self.sample_placeholder = tf.placeholder(dtype=tf.float32, shape=None)
@@ -159,8 +170,12 @@ class AudioReader(object):
                 if self.coord.should_stop():
                     stop = True
                     break
-                if self.silence_threshold is not None:
+                if self.trim[0] or self.trim[1]:
+                    print("trim_seconds ({})".format(self.trim))
+                    audio = trim_seconds(audio, (int(self.trim[0]*self.sample_rate), int(self.trim[1]*self.sample_rate)))
+                if self.silence_threshold:
                     # Remove silence
+                    print("trim_silence ({})".format(self.silence_threshold))
                     audio = trim_silence(audio[:, 0], self.silence_threshold)
                     audio = audio.reshape(-1, 1)
                     if audio.size == 0:

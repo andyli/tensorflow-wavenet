@@ -89,6 +89,12 @@ def get_arguments():
                         default=SILENCE_THRESHOLD,
                         help='Volume threshold below which to trim the start '
                         'and the end from the training set samples. Default: ' + str(SILENCE_THRESHOLD) + '.')
+    parser.add_argument('--trim_start', type=float,
+                        default=0,
+                        help='trim the start by number of seconds Default: 0.')
+    parser.add_argument('--trim_end', type=float,
+                        default=0,
+                        help='trim the end by number of seconds Default: 0.')
     parser.add_argument('--optimizer', type=str, default='adam',
                         choices=optimizer_factory.keys(),
                         help='Select the optimizer specified by this option. Default: adam.')
@@ -225,7 +231,8 @@ def main():
                                                                    wavenet_params["scalar_input"],
                                                                    wavenet_params["initial_filter_width"]),
             sample_size=args.sample_size,
-            silence_threshold=silence_threshold)
+            silence_threshold=silence_threshold,
+            trim=(args.trim_start if args.trim_start else 0, args.trim_end if args.trim_end else 0))
         audio_batch = reader.dequeue(args.batch_size)
         if gc_enabled:
             gc_id_batch = reader.dequeue_gc(args.batch_size)
